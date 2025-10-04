@@ -1,67 +1,78 @@
-import os
-import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ChatJoinRequestHandler
+// Kerakli kutubxonalarni import qilish
+const { Telegraf, Markup } = require('telegraf');
 
-# Loglarni (xatoliklarni) ko'rsatib turish uchun sozlash
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+// Loglarni (xatoliklarni) ko'rsatib turish uchun sozlash
+console.log('Bot ishga tushirilmoqda...');
 
-# Bot Token'ni Render'ning o'zidan olish
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    logging.error("BOT_TOKEN topilmadi! Uni Render'da Environment bo'limiga qo'shing.")
-    exit()
+// Bot Token'ni Render'ning o\'zidan (yoki .env faylidan) olish
+// Environment o\'zgaruvchisi nomi Python dagi kabi "BOT_TOKEN" bo\'lishi kerak.
+const BOT_TOKEN = process.env.BOT_TOKEN;
 
-# /start komandasi uchun funksiya
-async def start(update: Update, context):
-    await update.message.reply_html(
-        "Salom! Men kanal yoki gruppaga yuborilgan a'zolik so'rovlarini avtomatik qabul qilaman.\n\n"
+if (!BOT_TOKEN) {
+    console.error("BOT_TOKEN topilmadi! Uni Render'da Environment bo'limiga qo'shing.");
+    process.exit(1);
+}
+
+// Telegraf botini ishga tushirish
+const bot = new Telegraf(BOT_TOKEN);
+
+// --- Komandalar va hodisalar uchun funksiyalar ---
+
+// /start komandasi uchun funksiya
+bot.start(async (ctx) => {
+    // Telegraf Markup.html funksiyasi orqali HTML formatlashni qo\'llab-quvvatlash
+    await ctx.replyWithHTML(
+        "Salom! Men kanal yoki gruppaga yuborilgan a'zolik so'rovlarini avtomatik qabul qilaman.\n\n" +
         "Meni kanalingizga qo'shish uchun /add buyrug'ini yuboring."
-    )
+    );
+});
 
-# YANGI FUNKSIYA: /add komandasi uchun
-async def add_to_chat(update: Update, context):
-    bot_username = context.bot.username
-    # Botga kerakli admin huquqini so'rash uchun maxsus havola
-    admin_rights_url = f"https://t.me/{bot_username}?startgroup=true&admin=can_invite_users"
+// /add komandasi uchun funksiya
+bot.command('add', async (ctx) => {
+    // Botning to\'g\'ri ismiga kirish
+    const botUsername = ctx.botInfo.username;
     
-    text = (
-        "Meni guruh yoki kanalingizga administrator qilish uchun quyidagi tugmani bosing.\n\n"
-        "❗️ **DIQQAT:** Men a'zolik so'rovlarini muvaffaqiyatli qabul qila olishim uchun, "
-        "menga administratorlik huquqini berayotganingizda **\"Invite Users via Link\"** "
+    // Botga kerakli admin huquqini (can_invite_users) so\'rash uchun maxsus havola
+    // 'can_invite_users' Telegram botining a\'zolik so\'rovlarini qabul qilish huquqini bildiradi.
+    const adminRightsUrl = `https://t.me/${botUsername}?startgroup=true&admin=can_invite_users`;
+    
+    const text = (
+        "Meni guruh yoki kanalingizga administrator qilish uchun quyidagi tugmani bosing.\n\n" +
+        "❗️ <b>DIQQAT:</b> Men a'zolik so'rovlarini muvaffaqiyatli qabul qila olishim uchun, " +
+        "menga administratorlik huquqini berayotganingizda <b>\"Invite Users via Link\"</b> " +
         "(Foydalanuvchilarni havola orqali taklif qilish) huquqi yoqilganligiga ishonch hosil qiling."
-    )
+    );
     
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ Guruh/Kanalga qo'shish", url=admin_rights_url)]
-    ])
+    const keyboard = Markup.inlineKeyboard([
+        Markup.button.url("➕ Guruh/Kanalga qo'shish", adminRightsUrl)
+    ]);
     
-    await update.message.reply_text(text, reply_markup=keyboard)
+    await ctx.replyWithHTML(text, keyboard);
+});
 
+// Yangi a\'zolik so\'rovlarini (chat_join_request) qabul qiluvchi funksiya
+bot.on('chat_join_request', async (ctx) => {
+    const userId = ctx.chatJoinRequest.from.id;
+    const chatId = ctx.chatJoinRequest.chat.id;
 
-# Yangi a'zolik so'rovlarini qabul qiluvchi funksiya
-async def approve_join_request(update: Update, context):
-    try:
-        await update.chat_join_request.approve()
-        logging.info(f"Foydalanuvchi {update.chat_join_request.from_user.id} ning so'rovi qabul qilindi.")
-    except Exception as e:
-        logging.error(f"So'rovni qabul qilishda xatolik: {e}")
+    try {
+        // So\'rovni avtomatik ravishda qabul qilish
+        await ctx.approveChatJoinRequest(chatId, userId);
+        console.log(`Foydalanuvchi ${userId} ning so'rovi qabul qilindi. Chat ID: ${chatId}`);
+    } catch (e) {
+        console.error(`So\'rovni qabul qilishda xatolik (User: ${userId}, Chat: ${chatId}):`, e);
+    }
+});
 
-# Botni ishga tushiruvchi asosiy funksiya
-def main():
-    application = Application.builder().token(BOT_TOKEN).build()
+// Botni ishga tushirish
+bot.launch()
+    .then(() => {
+        console.log("Bot muvaffaqiyatli ishga tushdi (Join Request rejimi)...");
+    })
+    .catch((err) => {
+        console.error("Botni ishga tushirishda xatolik yuz berdi:", err);
+    });
 
-    # Komanda va so'rovlarni qaysi funksiya bajarishini belgilash
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("add", add_to_chat))  # YAngi komanda qo'shildi
-    application.add_handler(ChatJoinRequestHandler(callback=approve_join_request))
-
-    logging.info("Bot ishga tushdi (Join Request rejimi)...")
-    
-    application.run_polling()
-
-if __name__ == '__main__':
-    main()
+// Serverni to\'xtatish signallarini (SIGINT, SIGTERM) qayta ishlash
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
